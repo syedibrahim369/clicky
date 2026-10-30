@@ -5,7 +5,7 @@ Read this first when picking the port up in a fresh session. Branch: `feature/li
 ## Status
 - [x] M1 Overlay
 - [x] M2 Trigger + capture
-- [ ] M3 Speech-to-text
+- [x] M3 Speech-to-text
 - [ ] M4 Brain + pointing
 - [ ] M5 Voice
 - [ ] M6 Polish
@@ -19,7 +19,12 @@ All commands run from `linux/`.
     .venv/bin/python -m pytest -q tests
     DISPLAY=:20 PYTHONPATH=. .venv/bin/python tests/verify_overlay_x11.py /tmp/out.png
     DISPLAY=:20 .venv/bin/python -m clicky --dump-captures /tmp/clicky-captures   # hold Ctrl+Alt
+    DISPLAY=:20 .venv/bin/python -m clicky --no-voice     # hotkey and capture only, mic stays off
     .venv/bin/python -m clicky --trigger
+
+    # Speech check: plays clips into a temporary virtual mic, so no talking is needed.
+    # Needs clips from tests/generate_speech_fixtures.py (which needs Piper and two voices).
+    DISPLAY=:20 PYTHONPATH=. .venv/bin/python tests/verify_speech_x11.py <clips directory>
 
     # HiDPI + hotkey + socket check, at the real panel size. Changes Xft.dpi on the display
     # it runs against, so only ever run it on a nested display:
@@ -57,9 +62,54 @@ All commands run from `linux/`.
   bound (umask, not chmod). There is no /tmp fallback. Also acts as the single-instance lock.
   A hard kill leaves a stale file, which the next start replaces.
 - **pynput stays:** the evdev build worked, so the XRecord fallback was not needed.
+- **Speech-to-text defaults:** `base.en`, int8, 4 threads, beam 5, VAD on. Over 16 synthetic
+  clips of about 2 s on the i7-1355U (mean transcribe time, clips exact, before hotwords):
+
+      tiny.en  4 threads beam 1   0.81 s   14/16
+      base.en  4 threads beam 1   1.51 s   15/16
+      base.en 10 threads beam 1   1.20 s   15/16
+      base.en  4 threads beam 5   1.66 s   16/16
+      small.en 6 threads beam 1   3.44 s   16/16
+
+  Thread count made little difference for base.en and the spread looks like noise, so 4 keeps
+  the CPU free for the LLM. Beam 1 misheard "GNOME" as "NONE".
+- **Hotwords:** stand in for Clicky's AssemblyAI keyterms. Without them the real pipeline
+  heard "Bluetooth" as "blue cheese". With them: 16/16 in 3 runs, with no added latency, and
+  four unrelated test phrases were not pulled toward desktop words.
+- **End-to-end M3 result:** 1.6 s from key release to text, about 2.2 s model load at launch,
+  about 550 MB app memory, 35 ms to open the microphone. All on synthetic speech.
+- **Order on release:** screenshot, then stop the mic, then transcribe. The mic keeps running
+  during the screenshot, which also protects a last word from an early release.
+- **Recording limit:** 60 s, enforced by the orchestrator. It then calls
+  `Platform.end_active_trigger()`, a seventh Platform method, so a later toggle starts fresh.
+- **Interrupting:** any new press abandons work in progress. Whisper cannot be stopped, so the
+  thread finishes and discards its own result, using a question number.
+- **Audio stays in memory.** Nothing is written to disk.
 - **Agreed for later milestones:**
+- **Speech-to-text defaults:** `base.en`, int8, 4 threads, beam 5, VAD on. Over 16 synthetic
+  clips of about 2 s on the i7-1355U (mean transcribe time, clips exact, before hotwords):
+
+      tiny.en  4 threads beam 1   0.81 s   14/16
+      base.en  4 threads beam 1   1.51 s   15/16
+      base.en 10 threads beam 1   1.20 s   15/16
+      base.en  4 threads beam 5   1.66 s   16/16
+      small.en 6 threads beam 1   3.44 s   16/16
+
+  Thread count made little difference for base.en and the spread looks like noise, so 4 keeps
+  the CPU free for the LLM. Beam 1 misheard "GNOME" as "NONE".
+- **Hotwords:** stand in for Clicky's AssemblyAI keyterms. Without them the real pipeline
+  heard "Bluetooth" as "blue cheese". With them: 16/16 in 3 runs, with no added latency, and
+  four unrelated test phrases were not pulled toward desktop words.
+- **End-to-end M3 result:** 1.6 s from key release to text, about 2.2 s model load at launch,
+  about 550 MB app memory, 35 ms to open the microphone. All on synthetic speech.
+- **Order on release:** screenshot, then stop the mic, then transcribe. The mic keeps running
+  during the screenshot, which also protects a last word from an early release.
+- **Recording limit:** 60 s, enforced by the orchestrator. It then calls
+  `Platform.end_active_trigger()`, a seventh Platform method, so a later toggle starts fresh.
+- **Interrupting:** any new press abandons work in progress. Whisper cannot be stopped, so the
+  thread finishes and discards its own result, using a question number.
+- **Audio stays in memory.** Nothing is written to disk.
 - **Agreed for later milestones:**
-  - Capture on key release, before transcription (M2 does this in its listening mode).
   - 0-1000 coordinates, with axis order declared per provider and confirmed by test.
   - Gemini development runs on fixtures to save quota.
   - Piper runs as a separate process and is not vendored (it is GPL-3.0; this repo is MIT).
@@ -81,6 +131,12 @@ All commands run from `linux/`.
 - Xephyr's `-resizeable` shrinks the root to fit the host window, so `--size` is ignored.
 - The tip must be measured by coverage, not exact colour: antialiasing moves an exact match
   1-2 px inside the dart.
+- PortAudio's default device is PipeWire and accepts 16 kHz, so we do not resample.
+- To test against a virtual mic, set `PIPEWIRE_ALSA='{ target.object=<node> }'` for one process.
+  `PIPEWIRE_NODE` gave silence. System defaults are left alone either way.
+- The Hugging Face downloader can crash on small files after the large one finishes, and a
+  bare rerun fetches just what is missing. Piper's voice downloader left truncated `.onnx`
+  files on a flaky connection with no error, so check sizes or SHA-256 after downloading.
 - 0600 on the trigger socket blocks other users, not other processes running as the same
   user. Unix permissions cannot separate those.
 
@@ -94,7 +150,8 @@ All commands run from `linux/`.
 - Your Wayland session uses fractional 1.25, a Wayland-only Mutter feature (and shows
   `Xft.dpi: 192`), so the Xorg session's scale may well differ. All four scales pass nested.
   Confirm from `scale` in the `screen 0:` line of the listening mode.
-- A real VT switch during a hold: the release may never arrive, leaving the hold active until
-  Ctrl+Alt is next pressed and released. **M3 must cap recording length** for this reason, and
-  because a forgotten `--trigger` toggle would otherwise record indefinitely.
+- **A real human voice on the laptop mic has not been tested.** Run this for real latency and
+  accuracy; only a 1 s level check of the real mic was done (it opens and has signal).
+- A real VT switch during a hold: the release may never arrive. The 60 s limit now covers it.
+- `qwen3-vl:4b-instruct` is not pulled yet. Only `qwen3-vl:2b` is, and M4 must compare both.
 - Multi-monitor is unit-tested only, with fake geometry. Hot-plugging is not exercised.

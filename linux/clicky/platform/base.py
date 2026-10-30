@@ -45,6 +45,14 @@ class Platform(Protocol):
         """
         ...
 
+    def end_active_trigger(self) -> None:
+        """Ends the current press or toggle without firing an event.
+
+        Used when core stops a recording itself, so the next toggle starts a new one
+        rather than stopping a recording that is already over.
+        """
+        ...
+
     def capture(self) -> list[CapturedScreen]:
         """Screenshots every monitor, in the order `point` numbers them.
 

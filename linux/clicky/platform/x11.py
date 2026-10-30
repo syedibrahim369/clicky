@@ -98,6 +98,7 @@ class X11Platform:
             Qt.ConnectionType.BlockingQueuedConnection,
         )
 
+        self.push_to_talk_trigger: PushToTalkTrigger | None = None
         self.trigger_socket_server: TriggerSocketServer | None = None
         self.global_hotkey_listener: GlobalHotkeyListener | None = None
 
@@ -105,17 +106,21 @@ class X11Platform:
         return len(self.overlay_controller.sorted_screens())
 
     def on_trigger(self, callback: Callable[[TriggerEvent], None]) -> None:
-        push_to_talk_trigger = PushToTalkTrigger(callback)
+        self.push_to_talk_trigger = PushToTalkTrigger(callback)
 
         # The socket starts first: it briefly changes the process umask while binding,
         # which must happen before the hotkey listener adds another thread.
         self.trigger_socket_server = TriggerSocketServer(
-            default_trigger_socket_path(), push_to_talk_trigger.toggle
+            default_trigger_socket_path(), self.push_to_talk_trigger.toggle
         )
         self.trigger_socket_server.start()
 
-        self.global_hotkey_listener = GlobalHotkeyListener(push_to_talk_trigger)
+        self.global_hotkey_listener = GlobalHotkeyListener(self.push_to_talk_trigger)
         self.global_hotkey_listener.start()
+
+    def end_active_trigger(self) -> None:
+        if self.push_to_talk_trigger is not None:
+            self.push_to_talk_trigger.end_active_recording()
 
     def capture(self) -> list[CapturedScreen]:
         if threading.current_thread() is threading.main_thread():

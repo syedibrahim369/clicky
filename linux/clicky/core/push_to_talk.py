@@ -92,6 +92,14 @@ class PushToTalkTrigger:
             self.is_waiting_for_modifiers_to_clear = True
             self.event_callback(TriggerEvent.CANCELLED)
 
+    def end_active_recording(self) -> None:
+        """Forgets the active recording without firing an event, for the time limit."""
+        with self.state_lock:
+            if self.active_source == ActivationSource.HOTKEY:
+                # The keys are still down, and must not start a new recording right away.
+                self.is_waiting_for_modifiers_to_clear = True
+            self.active_source = None
+
     def toggle(self) -> str:
         """Starts or stops a recording, returning "recording" or "stopped".
 

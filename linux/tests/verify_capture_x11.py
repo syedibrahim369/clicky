@@ -132,9 +132,9 @@ def run_round_trips_in_child():
 
 
 class ListeningApp:
-    def __init__(self, extra_arguments=()):
+    def __init__(self):
         self.process = subprocess.Popen(
-            [sys.executable, "-m", "clicky", *extra_arguments],
+            [sys.executable, "-m", "clicky", "--no-voice"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         self.output_lines = queue.Queue()
@@ -235,7 +235,7 @@ def verify_hotkey_and_socket():
         and any(line.startswith("screen 0:") for line in lines_after_stop)
     )
 
-    second_instance = run_clicky_command()
+    second_instance = run_clicky_command("--no-voice")
     results["second instance is refused"] = (
         second_instance.returncode == 1 and "already running" in second_instance.stderr
     )

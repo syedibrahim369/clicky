@@ -120,3 +120,28 @@ def test_toggle_can_stop_a_hotkey_recording_without_a_second_release(trigger, ev
     clock.advance(1.0)
     trigger.key_released(CONTROL)
     assert events == [TriggerEvent.PRESSED, TriggerEvent.RELEASED]
+
+
+def test_time_limit_ends_a_toggle_so_the_next_toggle_starts_fresh(trigger, events):
+    trigger.toggle()
+    trigger.end_active_recording()
+    assert trigger.toggle() == "recording"
+    assert events == [TriggerEvent.PRESSED, TriggerEvent.PRESSED]
+
+
+def test_keys_still_held_at_the_time_limit_do_not_restart_recording(trigger, events, clock):
+    press_ctrl_alt(trigger)
+    trigger.end_active_recording()
+    clock.advance(1.0)
+    trigger.key_released(ALT)
+    trigger.key_pressed(ALT)
+    assert events == [TriggerEvent.PRESSED]
+
+
+def test_hotkey_recovers_after_a_time_limit_once_keys_are_released(trigger, events):
+    press_ctrl_alt(trigger)
+    trigger.end_active_recording()
+    trigger.key_released(ALT)
+    trigger.key_released(CONTROL)
+    press_ctrl_alt(trigger)
+    assert events == [TriggerEvent.PRESSED, TriggerEvent.PRESSED]

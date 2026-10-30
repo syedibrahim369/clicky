@@ -32,6 +32,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         metavar="DIRECTORY",
         help="save each screenshot to DIRECTORY, for checking what the model would see",
     )
+    argument_parser.add_argument(
+        "--no-voice",
+        action="store_true",
+        help="test the hotkey and capture only: no microphone and no speech model",
+    )
     return argument_parser
 
 
@@ -75,8 +80,7 @@ def run_trigger_command() -> int:
     return 0
 
 
-def capture_and_report(x11_platform, dump_directory: Path | None) -> None:
-    captured_screens = x11_platform.capture()
+def report_captured_screens(captured_screens, dump_directory: Path | None) -> None:
     for screen_index, captured_screen in enumerate(captured_screens):
         print(
             f"screen {screen_index}: logical {captured_screen.width}x{captured_screen.height}"
@@ -91,22 +95,63 @@ def capture_and_report(x11_platform, dump_directory: Path | None) -> None:
             (dump_directory / f"screen-{screen_index}.png").write_bytes(captured_screen.png_bytes)
 
 
-def run_listening_mode(dump_directory: Path | None) -> int:
-    from clicky.core.trigger_socket import TriggerSocketError
+def run_hotkey_test_mode(x11_platform, dump_directory: Path | None) -> None:
+    """Reports triggers and captures only, without touching the microphone."""
     from clicky.platform.base import TriggerEvent
-    from clicky.platform.x11 import UnsupportedDisplayError, X11Platform
+
+    def capture_and_report() -> None:
+        report_captured_screens(x11_platform.capture(), dump_directory)
 
     def handle_trigger_event(trigger_event: TriggerEvent) -> None:
         print(f"trigger: {trigger_event.value}", flush=True)
         if trigger_event == TriggerEvent.RELEASED:
             # Capturing is too slow to run on the thread that delivers key events.
-            threading.Thread(
-                target=capture_and_report, args=(x11_platform, dump_directory), daemon=True
-            ).start()
+            threading.Thread(target=capture_and_report, daemon=True).start()
+
+    x11_platform.on_trigger(handle_trigger_event)
+
+
+def start_voice_pipeline(x11_platform, dump_directory: Path | None) -> None:
+    from clicky.core.audio_capture import MicrophoneRecorder
+    from clicky.core.config import load_settings
+    from clicky.core.orchestrator import Orchestrator
+    from clicky.core.speech_to_text import FasterWhisperSpeechToText
+
+    settings = load_settings()
+    speech_to_text = FasterWhisperSpeechToText(settings.whisper_model)
+    orchestrator = Orchestrator(
+        x11_platform,
+        MicrophoneRecorder(),
+        speech_to_text,
+        captured_screens_observer=lambda captured_screens: report_captured_screens(
+            captured_screens, dump_directory
+        ),
+    )
+    x11_platform.on_trigger(orchestrator.handle_trigger_event)
+    orchestrator.start()
+
+    def load_speech_model() -> None:
+        print(f"loading speech model {settings.whisper_model}", flush=True)
+        try:
+            speech_to_text.load_model()
+        except Exception as model_load_error:
+            print(f"clicky: could not load the speech model: {model_load_error}", flush=True)
+            return
+        print("speech model ready", flush=True)
+
+    threading.Thread(target=load_speech_model, daemon=True).start()
+
+
+def run_listening_mode(dump_directory: Path | None, is_voice_enabled: bool) -> int:
+    from clicky.core.trigger_socket import TriggerSocketError
+    from clicky.platform.x11 import UnsupportedDisplayError, X11Platform
 
     try:
         x11_platform = X11Platform()
-        x11_platform.on_trigger(handle_trigger_event)
+        if is_voice_enabled:
+            start_voice_pipeline(x11_platform, dump_directory)
+        else:
+            run_hotkey_test_mode(x11_platform, dump_directory)
     except (UnsupportedDisplayError, TriggerSocketError) as startup_error:
         print(f"clicky: {startup_error}", file=sys.stderr)
         return 1
@@ -133,7 +178,7 @@ def main() -> int:
     if arguments.trigger:
         return run_trigger_command()
 
-    return run_listening_mode(arguments.dump_captures)
+    return run_listening_mode(arguments.dump_captures, not arguments.no_voice)
 
 
 if __name__ == "__main__":
