@@ -75,7 +75,7 @@ fi
 
 # RECORD is what pynput listens through and XTEST lets tests inject the hotkey.
 # Both are named explicitly so a distro default change fails loudly here, not later.
-Xephyr "$nested_display" -ac -br -noreset -resizeable \
+Xephyr "$nested_display" -ac -br -noreset \
     -screen "$nested_screen_size" \
     +extension RECORD +extension XTEST +extension Composite &
 xephyr_pid=$!

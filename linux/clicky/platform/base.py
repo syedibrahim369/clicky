@@ -8,32 +8,48 @@ from typing import Callable, Protocol
 class TriggerEvent(Enum):
     PRESSED = "pressed"
     RELEASED = "released"
+    # The hold was not a question: a quick tap, or Ctrl+Alt used as part of a shortcut.
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
 class CapturedScreen:
     """One monitor's screenshot and where that monitor sits on the desktop.
 
-    `left`, `top`, `width` and `height` are logical pixels in desktop coordinates, the
-    same units `Platform.point` takes after subtracting the origin. The PNG is in
-    physical pixels, so `scale_factor` is physical pixels per logical pixel.
+    There are two unit systems here, and mixing them points at the wrong place on HiDPI:
+    - `left`, `top`, `width` and `height` are logical pixels, the units `Platform.point`
+      takes. `Platform.point` wants them relative to this screen's top-left.
+    - `png_bytes`, `png_width` and `png_height` are physical pixels.
+
+    `scale_factor` is physical pixels per logical pixel. Coordinates read off the image
+    should go through a 0-1 fraction of the image size, then be multiplied by `width` and
+    `height`, so that a later downscale of the image cannot change where the cursor lands.
     """
 
     png_bytes: bytes
+    png_width: int
+    png_height: int
     left: int
     top: int
     width: int
     height: int
     scale_factor: float
+    contains_mouse_cursor: bool
 
 
 class Platform(Protocol):
     def on_trigger(self, callback: Callable[[TriggerEvent], None]) -> None:
-        """Registers the callback fired when the push-to-talk hotkey goes down or up."""
+        """Registers the callback for push-to-talk events and starts listening for them.
+
+        The callback runs on a background thread and must return quickly.
+        """
         ...
 
     def capture(self) -> list[CapturedScreen]:
-        """Screenshots every monitor, in the order `point` numbers them."""
+        """Screenshots every monitor, in the order `point` numbers them.
+
+        Hides the cursor first so it is not in the images. Safe to call from any thread.
+        """
         ...
 
     def point(self, screen: int, x: float, y: float, label: str) -> None:

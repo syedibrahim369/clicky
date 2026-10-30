@@ -30,6 +30,7 @@ from clicky.core.pointer_motion import (
     place_label_bubble,
     plan_flight,
 )
+from clicky.platform.x11_capture import ScreenLayout
 
 # Same value as DS.Colors.overlayCursorBlue in Clicky's DesignSystem.swift.
 CURSOR_BLUE = QColor("#3380FF")
@@ -95,6 +96,8 @@ class CursorOverlayController(QObject):
         super().__init__()
         self.overlay_windows: list[ScreenOverlayWindow] = []
         self.overlay_window_geometries: list[QRect] = []
+        self.latest_screen_layouts: list[ScreenLayout] = []
+        self.overlay_was_visible_for_capture = False
 
         self.cursor_mode = CursorMode.HIDDEN
         self.cursor_x = 0.0
@@ -166,6 +169,32 @@ class CursorOverlayController(QObject):
             return
         self.enter_mode(CursorMode.FADING)
         self.animation_timer.start()
+
+    def prepare_for_capture(self) -> None:
+        """Hides the cursor at once and records the screen layout. Runs on the main thread.
+
+        Unlike ScreenCaptureKit, mss cannot exclude our windows from a screenshot, so a
+        visible cursor must be gone before the grab. There is no fade: it has to be off
+        screen now, and the model must never see it.
+        """
+        self.overlay_was_visible_for_capture = self.cursor_mode != CursorMode.HIDDEN
+        self.animation_timer.stop()
+        self.cursor_mode = CursorMode.HIDDEN
+        for overlay_window in self.overlay_windows:
+            overlay_window.hide()
+
+        mouse_position = QCursor.pos()
+        self.latest_screen_layouts = [
+            ScreenLayout(
+                left=screen.geometry().left(),
+                top=screen.geometry().top(),
+                width=screen.geometry().width(),
+                height=screen.geometry().height(),
+                device_pixel_ratio=screen.devicePixelRatio(),
+                contains_mouse_cursor=screen.geometry().contains(mouse_position),
+            )
+            for screen in self.sorted_screens()
+        ]
 
     def enter_mode(self, cursor_mode: CursorMode) -> None:
         self.cursor_mode = cursor_mode
