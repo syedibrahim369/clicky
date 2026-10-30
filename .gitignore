@@ -6,3 +6,10 @@ build/
 releases/
 .claude/
 coding-plans/
+
+# Clicky for Linux
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

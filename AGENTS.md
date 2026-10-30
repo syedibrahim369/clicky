@@ -145,6 +145,10 @@ IMPORTANT: Follow these naming rules strictly. Clarity is the top priority.
 - Do not rename the project directory or scheme (the "leanring" typo is intentional/legacy)
 - Do not run `xcodebuild` from the terminal — it invalidates TCC permissions
 
+## Clicky for Linux
+
+`linux/` holds a Python + PySide6 port, separate from the Swift app and sharing no code with it. It targets X11, and uses free providers only: faster-whisper, Piper, and Gemini free tier or Ollama. Read `linux/NOTES.md` for status, decisions and gotchas, and keep it updated. `core/` must never import Qt or X11; display-specific code goes in `platform/`.
+
 ## Git Workflow
 
 - Branch naming: `feature/description` or `fix/description`
